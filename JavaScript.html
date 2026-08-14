@@ -101,7 +101,13 @@
   function hydratePublicChrome() {
     const settings = state.bootstrap.settings || {};
     const logo = document.getElementById('logo');
-    if (logo) logo.src = settings.logo_url || '';
+    if (logo && settings.logo_url) {
+      logo.src = settings.logo_url;
+      logo.hidden = false;
+    } else if (logo) {
+      logo.removeAttribute('src');
+      logo.hidden = true;
+    }
     const hero = document.getElementById('hero');
     const heroBanner = document.getElementById('heroBanner');
     const configuredBanner = settings.banner_url && !String(settings.banner_url).includes('placehold.co') ? settings.banner_url : '';
@@ -188,7 +194,7 @@
             <div class="summary-item">โรงแรม<strong>${escapeHtml(hotel.hotel_name || '-')}</strong></div>
             <div class="summary-item">ห้องพัก<strong>${escapeHtml(p.room_number || '-')}</strong></div>
           </div>
-          ${bus.bus_id ? `<div class="section"><img src="${escapeAttr(resolveAsset(bus.bus_image || ''))}" alt="รถคันที่ ${escapeAttr(bus.bus_number)}" style="width:100%;max-height:280px;object-fit:cover;border-radius:8px;border:1px solid var(--line);"><div class="toolbar"><a href="tel:${escapeAttr(bus.driver_phone || '')}"><button type="button" class="gold">โทรหาคนขับ ${escapeHtml(bus.driver_phone || '')}</button></a></div></div>` : ''}
+          ${bus.bus_id ? `<div class="section"><img src="${escapeAttr(resolveAsset(bus.bus_image || ('asset:bus' + bus.bus_number)))}" alt="รถคันที่ ${escapeAttr(bus.bus_number)}" style="width:100%;max-height:280px;object-fit:cover;border-radius:8px;border:1px solid var(--line);"><div class="toolbar"><a href="tel:${escapeAttr(bus.driver_phone || '')}"><button type="button" class="gold">โทรหาคนขับ ${escapeHtml(bus.driver_phone || '')}</button></a></div></div>` : ''}
         </div>
         <div class="card">
           <h3>QR Code ประจำตัว</h3>
@@ -502,7 +508,7 @@
   function renderBusesAdmin() {
     document.getElementById('busEditor').innerHTML = state.bootstrap.buses.map(bus => `
       <div class="card bus-card">
-        <img src="${escapeAttr(resolveAsset(bus.bus_image || ''))}" alt="รถคันที่ ${escapeAttr(bus.bus_number)}">
+        <img src="${escapeAttr(resolveAsset(bus.bus_image || ('asset:bus' + bus.bus_number)))}" alt="รถคันที่ ${escapeAttr(bus.bus_number)}">
         <div class="bus-number">${escapeHtml(bus.bus_number)}</div>
         <label>คนขับ/ผู้ให้บริการ<input data-bus-field="driver_name" data-bus-id="${escapeAttr(bus.bus_id)}" value="${escapeAttr(bus.driver_name || bus.company_name || '')}"></label>
         <label>เบอร์โทร<input data-bus-field="driver_phone" data-bus-id="${escapeAttr(bus.bus_id)}" value="${escapeAttr(bus.driver_phone || '')}"></label>
@@ -626,7 +632,7 @@
     if (!target) return;
     target.innerHTML = buses.map(bus => `
       <div class="card bus-card">
-        <img src="${escapeAttr(resolveAsset(bus.bus_image || ''))}" alt="รถคันที่ ${escapeAttr(bus.bus_number)}">
+        <img src="${escapeAttr(resolveAsset(bus.bus_image || ('asset:bus' + bus.bus_number)))}" alt="รถคันที่ ${escapeAttr(bus.bus_number)}">
         <div class="toolbar" style="justify-content:space-between">
           <div><div class="muted">รถคันที่</div><div class="bus-number">${escapeHtml(bus.bus_number)}</div></div>
           <span class="pill">${escapeHtml(bus.passenger_count || 0)} / ${escapeHtml(bus.capacity || 45)} ที่นั่ง</span>
@@ -645,7 +651,7 @@
     if (!target) return;
     target.innerHTML = hotels.map(hotel => `
       <div class="card bus-card">
-        <img src="${escapeAttr(resolveAsset(hotel.hotel_image || ''))}" alt="${escapeAttr(hotel.hotel_name || 'โรงแรม')}">
+        <img src="${escapeAttr(resolveAsset(hotel.hotel_image || ('asset:hotel-' + (hotel.hotel_id || 'default'))))}" alt="${escapeAttr(hotel.hotel_name || 'โรงแรม')}">
         <h3>${escapeHtml(hotel.hotel_name || '-')}</h3>
         <div class="muted">${escapeHtml(hotel.address || '')}</div>
         ${hotel.phone ? `<div><b>โทร:</b> ${escapeHtml(hotel.phone)}</div>` : ''}
