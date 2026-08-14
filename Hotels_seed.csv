@@ -1,0 +1,3 @@
+hotel_id,hotel_name,address,phone,hotel_image,note,updated_at
+HOTEL001,The One Hotel,จังหวัดบึงกาฬ,,asset:hotelTheOne,โรงแรมที่พักโครงการ,
+HOTEL002,โรงแรมฟินน์,จังหวัดบึงกาฬ,,asset:hotelFinn,โรงแรมที่พักโครงการ,

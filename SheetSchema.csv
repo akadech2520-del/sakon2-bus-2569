@@ -1,0 +1,85 @@
+Sheet,Column,Description
+Participants,participant_id,รหัสผู้เข้าร่วม
+Participants,citizen_id,เลขบัตรประชาชน 13 หลัก
+Participants,prefix,คำนำหน้า
+Participants,first_name,ชื่อ
+Participants,last_name,นามสกุล
+Participants,gender,เพศ
+Participants,position,ตำแหน่ง
+Participants,school,โรงเรียน
+Participants,district,อำเภอ
+Participants,network,ศูนย์เครือข่ายการศึกษา
+Participants,phone,เบอร์โทรศัพท์
+Participants,line_id,Line ID
+Participants,boarding_point,จุดขึ้นรถ
+Participants,bus_id,รหัสรถ
+Participants,room_pair_id,รหัสคู่พัก
+Participants,roommate_id,รหัสคู่พักอีกฝ่าย
+Participants,roommate_status,สถานะคู่พัก
+Participants,pairing_preference,SELF หรือ STAFF
+Participants,hotel_id,รหัสโรงแรม
+Participants,room_id,รหัสห้อง
+Participants,room_number,หมายเลขห้อง
+Participants,registration_status,IMPORTED หรือ REGISTERED
+Participants,checkin_status,สถานะเช็กอิน
+Participants,onboard_status,สถานะขึ้นรถ
+Participants,qr_token,โทเคน QR Code
+Participants,note,หมายเหตุ
+Participants,updated_at,วันเวลาแก้ไขล่าสุด
+Participants,created_at,วันเวลาสร้างข้อมูล
+Buses,bus_id,รหัสรถ
+Buses,bus_number,รถคันที่ 1-5
+Buses,driver_name,ชื่อคนขับ
+Buses,company_name,ผู้ให้บริการรถ
+Buses,driver_phone,เบอร์โทรคนขับ
+Buses,boarding_points,จุดขึ้นรถของรถคันนั้น
+Buses,capacity,จำนวนที่นั่ง
+Buses,passenger_count,จำนวนผู้โดยสารปัจจุบัน
+Buses,departure_time,เวลาออกเดินทาง
+Buses,vehicle_registration,ทะเบียนรถ
+Buses,bus_image,URL รูปรถ
+Buses,driver_image,URL รูปคนขับ
+Buses,note,หมายเหตุ
+Buses,status,สถานะรถ
+Buses,updated_at,วันเวลาแก้ไขล่าสุด
+BoardingPoints,point_id,รหัสจุดขึ้นรถ
+BoardingPoints,name,ชื่อจุดขึ้นรถ
+BoardingPoints,location_note,รายละเอียดสถานที่
+BoardingPoints,departure_time,เวลาออก
+BoardingPoints,sort_order,ลำดับแสดงผล
+Hotels,hotel_id,รหัสโรงแรม
+Hotels,hotel_name,ชื่อโรงแรม
+Hotels,address,ที่อยู่
+Hotels,phone,เบอร์โทรโรงแรม
+Hotels,hotel_image,URL รูปโรงแรม
+Hotels,note,หมายเหตุ
+Hotels,updated_at,วันเวลาแก้ไขล่าสุด
+Rooms,room_id,รหัสห้อง
+Rooms,hotel_id,รหัสโรงแรม
+Rooms,room_number,หมายเลขห้อง
+Rooms,room_type,ประเภทห้อง
+Rooms,capacity,จำนวนผู้พักได้
+Rooms,occupancy,จำนวนผู้พักปัจจุบัน
+Rooms,status,สถานะห้อง
+Rooms,note,หมายเหตุ
+Rooms,updated_at,วันเวลาแก้ไขล่าสุด
+RoomPairs,pair_id,รหัสคู่พัก
+RoomPairs,participant_1,ผู้เข้าพักคนที่ 1
+RoomPairs,participant_2,ผู้เข้าพักคนที่ 2
+RoomPairs,request_by,ผู้ส่งคำขอ
+RoomPairs,status,PENDING CONFIRMED REJECTED
+RoomPairs,hotel_id,รหัสโรงแรม
+RoomPairs,room_id,รหัสห้อง
+RoomPairs,room_number,หมายเลขห้อง
+RoomPairs,updated_at,วันเวลาแก้ไขล่าสุด
+RoomPairs,created_at,วันเวลาสร้างคำขอ
+Settings,key,ชื่อค่า
+Settings,value,ค่า
+Settings,note,หมายเหตุ
+Checkins,checkin_id,รหัสเช็กอิน
+Checkins,participant_id,รหัสผู้เข้าร่วม
+Checkins,type,onboard หรือ checkin
+Checkins,status,สถานะ
+Checkins,checked_by,ผู้บันทึก
+Checkins,checked_at,วันเวลาบันทึก
+Checkins,note,หมายเหตุ

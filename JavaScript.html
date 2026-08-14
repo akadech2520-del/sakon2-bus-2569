@@ -1,0 +1,733 @@
+<script>
+  const state = {
+    page: document.body.dataset.page,
+    bootstrap: null,
+    admin: null,
+    adminPin: '',
+    currentParticipant: null,
+    selectedBusParticipants: new Set()
+  };
+
+  document.addEventListener('DOMContentLoaded', () => {
+    bindTabs();
+    const initializer = state.page === 'admin' ? initAdmin : initPublic;
+    initializer().catch(showFatalError);
+  });
+
+  function showFatalError(error) {
+    document.body.classList.remove('loading');
+    const message = escapeHtml((error && error.message) || error || 'ไม่ทราบสาเหตุ');
+    const box = document.createElement('div');
+    box.className = 'fatal-error';
+    box.innerHTML = `<div class="card"><h2>ไม่สามารถโหลดระบบได้</h2><p>${message}</p><p class="muted">กรุณาลองโหลดหน้าใหม่ หากยังไม่สำเร็จให้เปิดลิงก์เดิมโดยเติม <b>?check=1</b> เพื่อตรวจการติดตั้ง</p><button type="button" data-reload-page>โหลดหน้าใหม่</button></div>`;
+    document.body.prepend(box);
+    box.querySelector('[data-reload-page]').addEventListener('click', () => location.reload());
+  }
+
+  function run(fn, ...args) {
+    document.body.classList.add('loading');
+    if (!(window.google && google.script && google.script.run)) return runRemote(fn, args);
+    return new Promise((resolve, reject) => {
+      google.script.run
+        .withSuccessHandler(result => {
+          document.body.classList.remove('loading');
+          resolve(result);
+        })
+        .withFailureHandler(error => {
+          document.body.classList.remove('loading');
+          alert(error.message || error);
+          reject(error);
+        })[fn](...args);
+    });
+  }
+
+  async function runRemote(fn, args) {
+    try {
+      const queryUrl = new URLSearchParams(location.search).get('api');
+      if (queryUrl) localStorage.setItem('sakon2ApiUrl', queryUrl);
+      const apiUrl = queryUrl || localStorage.getItem('sakon2ApiUrl') || (window.APP_CONFIG && window.APP_CONFIG.apiUrl) || '';
+      if (!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec(?:\?.*)?$/i.test(apiUrl)) throw new Error('ยังไม่ได้ตั้งค่า Google Apps Script API URL กรุณาใส่ URL ใน config.js หรือเปิดเว็บด้วย ?api=WEB_APP_URL');
+      const response = await fetch(apiUrl, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: fn, args: args }) });
+      if (!response.ok) throw new Error('API ตอบกลับ HTTP ' + response.status);
+      const payload = await response.json();
+      if (!payload.ok) throw new Error(payload.error || 'API ทำงานไม่สำเร็จ');
+      document.body.classList.remove('loading');
+      return payload.data;
+    } catch (error) {
+      document.body.classList.remove('loading');
+      alert(error.message || error);
+      throw error;
+    }
+  }
+
+  function bindTabs() {
+    document.addEventListener('click', event => {
+      const tab = event.target.closest('[data-tab-target]');
+      if (tab) showTab(tab.dataset.tabTarget);
+      const panel = event.target.closest('[data-admin-panel]');
+      if (panel) showAdminPanel(panel.dataset.adminPanel);
+    });
+  }
+
+  function showTab(id) {
+    document.querySelectorAll('.tab-panel').forEach(el => el.classList.toggle('hidden', el.id !== id));
+    document.querySelectorAll('.tab').forEach(el => el.classList.toggle('active', el.dataset.tabTarget === id));
+    history.replaceState(null, '', '#' + id);
+  }
+
+  function showAdminPanel(id) {
+    document.querySelectorAll('.admin-panel').forEach(el => el.classList.toggle('hidden', el.id !== id));
+    document.querySelectorAll('.admin-nav').forEach(el => el.classList.toggle('active', el.dataset.adminPanel === id));
+  }
+
+  async function initPublic() {
+    state.bootstrap = await run('getBootstrap');
+    hydratePublicChrome();
+    renderPublicDashboard();
+    renderBusCards('busCards', state.bootstrap.buses);
+    renderHotelCards('hotelCards', state.bootstrap.hotels || []);
+    fillRegistrationLists();
+    bindPublicActions();
+    const hash = location.hash.replace('#', '');
+    if (hash && document.getElementById(hash)) showTab(hash);
+    const qrToken = new URLSearchParams(location.search).get('qr');
+    if (qrToken) {
+      const participant = await run('verifyQr', qrToken);
+      openParticipant(participant);
+      showTab('register');
+    }
+  }
+
+  function hydratePublicChrome() {
+    const settings = state.bootstrap.settings || {};
+    const logo = document.getElementById('logo');
+    if (logo) logo.src = settings.logo_url || '';
+    const hero = document.getElementById('hero');
+    const heroBanner = document.getElementById('heroBanner');
+    const configuredBanner = settings.banner_url && !String(settings.banner_url).includes('placehold.co') ? settings.banner_url : '';
+    const banner = configuredBanner || window.DEFAULT_HEADER_IMAGE || '';
+    if (heroBanner && banner) {
+      heroBanner.src = banner;
+      hero.classList.add('custom-banner');
+    } else if (hero && heroBanner) {
+      heroBanner.removeAttribute('src');
+      hero.classList.add('no-banner');
+    }
+  }
+
+  function renderPublicDashboard() {
+    const d = state.bootstrap.dashboard;
+    document.getElementById('publicMetrics').innerHTML = [
+      metricCard('ผู้เข้าร่วมทั้งหมด', d.total || state.bootstrap.settings.target_participants || 221),
+      metricCard('ลงทะเบียนแล้ว', d.registered),
+      metricCard('ยังไม่ลงทะเบียน', d.unregistered),
+      metricCard('มีคู่พักแล้ว', d.paired),
+      metricCard('รอจัดห้องพัก', d.unroomed)
+    ].join('');
+    document.getElementById('boardingSummary').innerHTML = state.bootstrap.boardingPoints.map(point => {
+      const count = d.boarding[point.name] || 0;
+      return `<div class="person-row"><div><b>${escapeHtml(point.name)}</b><div class="muted">${escapeHtml(point.location_note || '')}</div></div><span class="pill">${count} คน</span></div>`;
+    }).join('');
+  }
+
+  function fillRegistrationLists() {
+    const pointSelect = document.getElementById('boardingPointSelect');
+    pointSelect.innerHTML = '<option value="">เลือกจุดขึ้นรถ</option>' + state.bootstrap.boardingPoints.map(p => `<option>${escapeHtml(p.name)}</option>`).join('');
+    const network = document.getElementById('networkSelect');
+    network.innerHTML = '<option value="">เลือกศูนย์เครือข่าย</option>' + Array.from({ length: 20 }, (_, i) => `<option>ศูนย์เครือข่ายที่ ${i + 1}</option>`).join('');
+  }
+
+  function bindPublicActions() {
+    document.getElementById('searchParticipantBtn').addEventListener('click', searchParticipants);
+    document.getElementById('participantQuery').addEventListener('keydown', e => { if (e.key === 'Enter') searchParticipants(); });
+    document.getElementById('registrationForm').addEventListener('submit', savePublicRegistration);
+    document.getElementById('searchRoommateBtn').addEventListener('click', searchRoommates);
+    document.getElementById('staffPairingBtn').addEventListener('click', requestStaffPairingPublic);
+    document.getElementById('searchRoomBtn').addEventListener('click', searchRoomsPublic);
+  }
+
+  async function searchParticipants() {
+    const query = document.getElementById('participantQuery').value;
+    const rows = await run('lookupParticipant', query);
+    const target = document.getElementById('participantResults');
+    if (!rows.length) {
+      target.innerHTML = `<div class="notice">ไม่พบรายชื่อเดิม สามารถกรอกข้อมูลใหม่ในแบบฟอร์มด้านล่างได้</div>`;
+      document.getElementById('registrationForm').classList.remove('hidden');
+      return;
+    }
+    target.innerHTML = rows.map(p => `
+      <div class="person-row">
+        <div><b>${escapeHtml(p.full_name)}</b><div class="muted">${escapeHtml(p.position || '')} ${escapeHtml(p.school || '')} ${escapeHtml(p.district || '')}</div></div>
+        <button data-open-participant="${escapeHtml(p.participant_id)}">เปิดข้อมูล</button>
+      </div>`).join('');
+    target.querySelectorAll('[data-open-participant]').forEach(btn => btn.addEventListener('click', async () => openParticipant(await run('getParticipant', btn.dataset.openParticipant))));
+  }
+
+  function openParticipant(p) {
+    state.currentParticipant = p;
+    fillForm(document.getElementById('registrationForm'), p);
+    document.getElementById('registrationForm').classList.remove('hidden');
+    renderParticipantProfile(p);
+    loadIncomingRequests();
+  }
+
+  function renderParticipantProfile(p) {
+    const bus = p.bus || {};
+    const hotel = p.hotel || {};
+    const profile = document.getElementById('participantProfile');
+    profile.classList.remove('hidden');
+    profile.innerHTML = `
+      <div class="profile-grid">
+        <div class="card">
+          <h2>${escapeHtml(p.full_name || 'ข้อมูลผู้เข้าร่วม')}</h2>
+          <p class="muted">${escapeHtml(p.position || '')} ${escapeHtml(p.school || '')}</p>
+          <div class="summary">
+            <div class="summary-item">จุดขึ้นรถ<strong>${escapeHtml(p.boarding_point || '-')}</strong></div>
+            <div class="summary-item">รถคันที่<strong>${escapeHtml(bus.bus_number || '-')}</strong></div>
+            <div class="summary-item">คู่พัก<strong>${escapeHtml(p.roommate_name || statusText(p.roommate_status))}</strong></div>
+            <div class="summary-item">โรงแรม<strong>${escapeHtml(hotel.hotel_name || '-')}</strong></div>
+            <div class="summary-item">ห้องพัก<strong>${escapeHtml(p.room_number || '-')}</strong></div>
+          </div>
+          ${bus.bus_id ? `<div class="section"><img src="${escapeAttr(resolveAsset(bus.bus_image || ''))}" alt="รถคันที่ ${escapeAttr(bus.bus_number)}" style="width:100%;max-height:280px;object-fit:cover;border-radius:8px;border:1px solid var(--line);"><div class="toolbar"><a href="tel:${escapeAttr(bus.driver_phone || '')}"><button type="button" class="gold">โทรหาคนขับ ${escapeHtml(bus.driver_phone || '')}</button></a></div></div>` : ''}
+        </div>
+        <div class="card">
+          <h3>QR Code ประจำตัว</h3>
+          <img class="qr" src="${escapeAttr(p.qr_url || '')}" alt="QR Code">
+          <div class="toolbar"><button type="button" onclick="window.print()">พิมพ์ข้อมูล</button></div>
+        </div>
+      </div>`;
+  }
+
+  async function savePublicRegistration(event) {
+    event.preventDefault();
+    const data = formToObject(event.target);
+    const saved = await run('saveRegistration', data);
+    state.currentParticipant = saved;
+    renderParticipantProfile(saved);
+    state.bootstrap = await run('getBootstrap');
+    renderPublicDashboard();
+    renderBusCards('busCards', state.bootstrap.buses);
+    renderHotelCards('hotelCards', state.bootstrap.hotels || []);
+    alert('บันทึกข้อมูลเรียบร้อย');
+  }
+
+  async function loadIncomingRequests() {
+    if (!state.currentParticipant) return;
+    const requests = await run('getIncomingRoommateRequests', state.currentParticipant.participant_id);
+    document.getElementById('incomingRequests').innerHTML = requests.map(r => `
+      <div class="person-row">
+        <div><b>${escapeHtml(r.requester.full_name)}</b><div class="muted">ขอเป็นคู่พักกับท่าน</div></div>
+        <div class="toolbar">
+          <button data-confirm-pair="${escapeHtml(r.pair_id)}">ยืนยัน</button>
+          <button class="danger" data-reject-pair="${escapeHtml(r.pair_id)}">ปฏิเสธ</button>
+        </div>
+      </div>`).join('');
+    document.querySelectorAll('[data-confirm-pair]').forEach(btn => btn.addEventListener('click', () => respondPair(btn.dataset.confirmPair, 'CONFIRMED')));
+    document.querySelectorAll('[data-reject-pair]').forEach(btn => btn.addEventListener('click', () => respondPair(btn.dataset.rejectPair, 'REJECTED')));
+  }
+
+  async function respondPair(pairId, decision) {
+    await run('respondRoommate', pairId, state.currentParticipant.participant_id, decision);
+    state.currentParticipant = await run('getParticipant', state.currentParticipant.participant_id);
+    renderParticipantProfile(state.currentParticipant);
+    loadIncomingRequests();
+  }
+
+  async function searchRoommates() {
+    if (!state.currentParticipant) return alert('กรุณาเปิดข้อมูลของตนเองก่อน');
+    const rows = await run('searchRoommate', document.getElementById('roommateQuery').value, state.currentParticipant.participant_id);
+    document.getElementById('roommateResults').innerHTML = rows.map(p => `
+      <div class="person-row">
+        <div><b>${escapeHtml(p.full_name)}</b><div class="muted">${escapeHtml(p.school || '')} ${escapeHtml(p.district || '')}</div><span class="pill ${p.available_for_roommate ? 'ok' : 'warn'}">${p.available_for_roommate ? 'ยังไม่มีคู่พัก' : 'ไม่พร้อมให้เลือก'}</span></div>
+        <button ${p.available_for_roommate ? '' : 'disabled'} data-request-roommate="${escapeHtml(p.participant_id)}">เลือกเป็นคู่พัก</button>
+      </div>`).join('');
+    document.querySelectorAll('[data-request-roommate]').forEach(btn => btn.addEventListener('click', async () => {
+      await run('requestRoommate', state.currentParticipant.participant_id, btn.dataset.requestRoommate);
+      state.currentParticipant = await run('getParticipant', state.currentParticipant.participant_id);
+      renderParticipantProfile(state.currentParticipant);
+      alert('ส่งคำขอเรียบร้อย');
+    }));
+  }
+
+  async function requestStaffPairingPublic() {
+    if (!state.currentParticipant) return alert('กรุณาเปิดข้อมูลของตนเองก่อน');
+    await run('requestStaffPairing', state.currentParticipant.participant_id);
+    state.currentParticipant = await run('getParticipant', state.currentParticipant.participant_id);
+    renderParticipantProfile(state.currentParticipant);
+  }
+
+  async function searchRoomsPublic() {
+    const rows = await run('searchRoom', document.getElementById('roomQuery').value);
+    document.getElementById('roomResults').innerHTML = rows.map(roomResultCard).join('') || '<div class="notice">ไม่พบข้อมูล</div>';
+  }
+
+  function roomResultCard(p) {
+    const bus = p.bus || {};
+    const hotel = p.hotel || {};
+    return `<div class="card">
+      ${hotel.hotel_image ? `<img src="${escapeAttr(resolveAsset(hotel.hotel_image))}" alt="${escapeAttr(hotel.hotel_name || 'โรงแรม')}" style="width:100%;max-height:220px;object-fit:cover;border-radius:8px;border:1px solid var(--line);margin-bottom:12px;">` : ''}
+      <h3>${escapeHtml(p.full_name)}</h3>
+      <div class="summary">
+        <div class="summary-item">โรงแรม<strong>${escapeHtml(hotel.hotel_name || '-')}</strong></div>
+        <div class="summary-item">ห้อง<strong>${escapeHtml(p.room_number || '-')}</strong></div>
+        <div class="summary-item">คู่พัก<strong>${escapeHtml(p.roommate_name || '-')}</strong></div>
+        <div class="summary-item">จุดขึ้นรถ<strong>${escapeHtml(p.boarding_point || '-')}</strong></div>
+        <div class="summary-item">รถคันที่<strong>${escapeHtml(bus.bus_number || '-')}</strong></div>
+      </div>
+    </div>`;
+  }
+
+  async function initAdmin() {
+    document.getElementById('adminLoginBtn').addEventListener('click', async () => {
+      state.adminPin = document.getElementById('adminPin').value;
+      state.admin = await run('adminLogin', state.adminPin);
+      document.getElementById('adminLogin').classList.add('hidden');
+      document.getElementById('adminApp').classList.remove('hidden');
+      bindAdminActions();
+      renderAdmin();
+    });
+  }
+
+  function bindAdminActions() {
+    document.getElementById('adminRefreshBtn').addEventListener('click', refreshAdmin);
+    document.getElementById('adminParticipantFilter').addEventListener('input', renderParticipantsTable);
+    document.getElementById('autoPairBtn').addEventListener('click', async () => { await run('adminAutoPairRoommates', state.adminPin); await refreshAdmin(); });
+    document.getElementById('refreshPairsBtn').addEventListener('click', refreshAdmin);
+    document.getElementById('addHotelBtn').addEventListener('click', addHotel);
+    document.getElementById('addRoomBtn').addEventListener('click', addRoom);
+    document.getElementById('importRoomsBtn').addEventListener('click', importRooms);
+    document.getElementById('busAssignFilter').addEventListener('input', renderBusAssignList);
+    document.getElementById('assignBusBtn').addEventListener('click', assignSelectedBus);
+    document.getElementById('attendanceDate').addEventListener('change', renderAttendanceAdmin);
+    document.getElementById('attendanceBusSelect').addEventListener('change', renderAttendanceAdmin);
+    document.getElementById('attendanceFilter').addEventListener('input', renderAttendanceAdmin);
+    document.getElementById('adminRoomSearchBtn').addEventListener('click', adminRoomSearch);
+    document.getElementById('createReportBtn').addEventListener('click', createReport);
+  }
+
+  async function refreshAdmin() {
+    state.admin = await run('getAdminDashboard', state.adminPin);
+    renderAdmin();
+  }
+
+  function renderAdmin() {
+    state.bootstrap = state.admin.bootstrap;
+    renderAdminDashboard();
+    renderParticipantsTable();
+    renderPairAdmin();
+    renderRoomsAdmin();
+    renderBusesAdmin();
+    renderAttendanceAdmin();
+    renderReportFilters();
+  }
+
+  function renderReportFilters() {
+    const select = document.getElementById('reportHotelSelect');
+    if (!select) return;
+    select.innerHTML = state.admin.hotels.map(h => `<option value="${escapeAttr(h.hotel_id)}">${escapeHtml(h.hotel_name)}</option>`).join('');
+  }
+
+  function renderAdminDashboard() {
+    const d = state.bootstrap.dashboard;
+    document.getElementById('adminMetrics').innerHTML = [
+      metricCard('ผู้เข้าร่วมทั้งหมด', d.total),
+      metricCard('ลงทะเบียนแล้ว', d.registered),
+      metricCard('ยังไม่ลงทะเบียน', d.unregistered),
+      metricCard('มีคู่พักแล้ว', d.paired),
+      metricCard('รอเจ้าหน้าที่จัดคู่', d.staffQueue),
+      metricCard('จัดห้องแล้ว', d.roomed),
+      metricCard('ยังไม่มีห้อง', d.unroomed)
+    ].join('');
+    document.getElementById('adminBoardingSummary').innerHTML = Object.keys(d.boarding).map(k => `<div class="person-row"><b>${escapeHtml(k)}</b><span class="pill">${d.boarding[k]} คน</span></div>`).join('');
+    document.getElementById('adminBusStatus').innerHTML = state.bootstrap.buses.map(bus => busMiniRow(bus)).join('');
+  }
+
+  function renderParticipantsTable() {
+    const q = normalize(document.getElementById('adminParticipantFilter').value);
+    const rows = state.admin.participants.filter(p => normalize([p.full_name, p.school, p.district, p.boarding_point, p.room_number, p.bus && p.bus.bus_number].join(' ')).includes(q));
+    document.getElementById('participantsTable').innerHTML = `<table>
+      <thead><tr><th>ชื่อ-สกุล</th><th>โรงเรียน</th><th>จุดขึ้นรถ</th><th>รถ</th><th>คู่พัก</th><th>โรงแรม/ห้อง</th><th>สถานะ</th></tr></thead>
+      <tbody>${rows.map(p => `<tr><td>${escapeHtml(p.full_name)}</td><td>${escapeHtml(p.school || '')}</td><td>${escapeHtml(p.boarding_point || '')}</td><td>${escapeHtml(p.bus ? 'คัน ' + p.bus.bus_number : '')}</td><td>${escapeHtml(p.roommate_name || statusText(p.roommate_status))}</td><td>${escapeHtml((p.hotel ? p.hotel.hotel_name : '') + ' ' + (p.room_number || ''))}</td><td>${escapeHtml(p.registration_status || '')}</td></tr>`).join('')}</tbody>
+    </table>`;
+  }
+
+  function renderPairAdmin() {
+    const queue = state.admin.participants.filter(p => p.pairing_preference === 'STAFF' || p.roommate_status === 'STAFF_QUEUE');
+    document.getElementById('staffQueueList').innerHTML = queue.map(p => `<div class="person-row"><div><b>${escapeHtml(p.full_name)}</b><div class="muted">${escapeHtml(p.school || '')} ${escapeHtml(p.district || '')}</div></div><span class="pill warn">รอจัดคู่</span></div>`).join('') || '<div class="muted">ไม่มีรายการรอจัดคู่</div>';
+    document.getElementById('pairList').innerHTML = state.admin.pairs.map(pair => {
+      const a = state.admin.participants.find(p => p.participant_id === pair.participant_1) || {};
+      const b = state.admin.participants.find(p => p.participant_id === pair.participant_2) || {};
+      return `<div class="person-row"><div><b>${escapeHtml(a.full_name || pair.participant_1)} ↔ ${escapeHtml(b.full_name || pair.participant_2)}</b><div class="muted">${escapeHtml(pair.request_by || '')}</div></div><span class="pill ${pair.status === 'CONFIRMED' ? 'ok' : 'warn'}">${escapeHtml(pair.status)}</span></div>`;
+    }).join('');
+  }
+
+  function renderRoomsAdmin() {
+    const hotelSelect = document.getElementById('roomHotelSelect');
+    const importHotelSelect = document.getElementById('roomImportHotelSelect');
+    hotelSelect.innerHTML = state.admin.hotels.map(h => `<option value="${escapeAttr(h.hotel_id)}">${escapeHtml(h.hotel_name)}</option>`).join('');
+    importHotelSelect.innerHTML = hotelSelect.innerHTML;
+    const unroomed = state.admin.participants.filter(p => !p.room_id);
+    document.getElementById('unroomedList').innerHTML = unroomed.map(p => `<div class="person-row draggable" draggable="true" data-drag-participant="${escapeAttr(p.participant_id)}"><div><b>${escapeHtml(p.full_name)}</b><div class="muted">${escapeHtml(p.school || '')}</div></div><span class="pill">${escapeHtml(p.roommate_name || statusText(p.roommate_status))}</span></div>`).join('') || '<div class="muted">จัดห้องครบแล้ว</div>';
+    document.querySelectorAll('[data-drag-participant]').forEach(el => el.addEventListener('dragstart', e => e.dataTransfer.setData('text/plain', el.dataset.dragParticipant)));
+    const roomPlan = document.getElementById('roomPlan');
+    roomPlan.innerHTML = state.admin.hotels.map(hotel => {
+      const rooms = state.admin.rooms
+        .filter(room => room.hotel_id === hotel.hotel_id)
+        .sort((a, b) => String(a.room_number || '').localeCompare(String(b.room_number || ''), 'th', { numeric: true }));
+      const people = state.admin.participants.filter(p => p.hotel_id === hotel.hotel_id || rooms.some(room => room.room_id === p.room_id));
+      const roomed = people.filter(p => p.room_id || p.room_number).length;
+      const capacity = rooms.reduce((sum, room) => sum + Number(room.capacity || 2), 0);
+      return `<section class="hotel-room-board">
+        <div class="hotel-room-head">
+          <div class="hotel-room-title">
+            ${hotel.hotel_image ? `<img src="${escapeAttr(resolveAsset(hotel.hotel_image))}" alt="${escapeAttr(hotel.hotel_name || 'โรงแรม')}">` : ''}
+            <div>
+              <h3>${escapeHtml(hotel.hotel_name || '-')}</h3>
+              <div class="muted">${escapeHtml(hotel.address || '')}</div>
+              <div class="toolbar compact">
+                <span class="pill">${rooms.length} ห้อง</span>
+                <span class="pill ${capacity && roomed >= capacity ? 'ok' : 'warn'}">${roomed}/${capacity || 0} คน</span>
+              </div>
+            </div>
+          </div>
+          <div class="toolbar hotel-actions">
+            <button type="button" class="secondary" data-hotel-report="${escapeAttr(hotel.hotel_id)}" data-report-format="xlsx">Excel</button>
+            <button type="button" class="secondary" data-hotel-report="${escapeAttr(hotel.hotel_id)}" data-report-format="pdf">PDF</button>
+            <button type="button" class="secondary" data-hotel-report="${escapeAttr(hotel.hotel_id)}" data-report-format="csv">CSV</button>
+          </div>
+        </div>
+        <div class="room-grid">
+          ${rooms.map(roomCard).join('') || '<div class="notice">ยังไม่มีห้องของโรงแรมนี้</div>'}
+        </div>
+      </section>`;
+    }).join('') || '<div class="notice">เพิ่มโรงแรมและห้องพักก่อน</div>';
+    document.querySelectorAll('[data-hotel-report]').forEach(btn => btn.addEventListener('click', () => createHotelReport(btn.dataset.hotelReport, btn.dataset.reportFormat)));
+    document.querySelectorAll('[data-delete-room]').forEach(btn => btn.addEventListener('click', () => deleteRoom(btn.dataset.deleteRoom)));
+    document.querySelectorAll('.drop-room').forEach(el => {
+      el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('over'); });
+      el.addEventListener('dragleave', () => el.classList.remove('over'));
+      el.addEventListener('drop', async e => {
+        e.preventDefault();
+        el.classList.remove('over');
+        const participantId = e.dataTransfer.getData('text/plain');
+        const roomId = el.dataset.roomId;
+        const occupants = state.admin.participants.filter(p => p.room_id === roomId).map(p => p.participant_id);
+        if (!occupants.includes(participantId)) occupants.push(participantId);
+        state.admin = await run('adminAssignRoom', state.adminPin, roomId, occupants);
+        renderAdmin();
+      });
+    });
+  }
+
+  function roomCard(room) {
+    const occupants = state.admin.participants.filter(p => p.room_id === room.room_id);
+    const capacity = Number(room.capacity || 2);
+    return `<div class="drop-room" data-room-id="${escapeAttr(room.room_id)}">
+      <div class="person-row">
+        <div>
+          <b>ห้อง ${escapeHtml(room.room_number)}</b>
+          <div class="muted">${escapeHtml(room.room_type || 'Twin')} | ${occupants.length}/${escapeHtml(capacity)} คน</div>
+        </div>
+        <span class="pill ${occupants.length >= capacity ? 'ok' : 'warn'}">${escapeHtml(room.status || (occupants.length >= capacity ? 'เต็ม' : 'ว่าง'))}</span>
+      </div>
+      <div class="toolbar compact room-actions">
+        <button type="button" class="danger" data-delete-room="${escapeAttr(room.room_id)}">ลบห้อง</button>
+      </div>
+      <div class="room-occupants">
+        ${occupants.map(p => `<div class="room-guest"><b>${escapeHtml(p.full_name)}</b><span>${escapeHtml(p.school || '')}</span></div>`).join('') || '<div class="muted">ลากรายชื่อมาวางที่ห้องนี้</div>'}
+      </div>
+    </div>`;
+  }
+
+  async function addHotel() {
+    const hotel_name = document.getElementById('hotelName').value;
+    const phone = document.getElementById('hotelPhone').value;
+    if (!hotel_name) return alert('กรุณากรอกชื่อโรงแรม');
+    state.admin = await run('adminSaveHotel', state.adminPin, { hotel_name, phone });
+    document.getElementById('hotelName').value = '';
+    document.getElementById('hotelPhone').value = '';
+    renderAdmin();
+  }
+
+  async function deleteRoom(roomId) {
+    const room = state.admin.rooms.find(item => item.room_id === roomId);
+    if (!room) return;
+    const hotel = state.admin.hotels.find(item => item.hotel_id === room.hotel_id) || {};
+    const occupants = state.admin.participants.filter(p => p.room_id === roomId).length;
+    const message = `ยืนยันลบห้อง ${room.room_number} ${hotel.hotel_name || ''}${occupants ? ` และย้ายผู้พัก ${occupants} คนกลับไปรอจัดห้อง` : ''}?`;
+    if (!confirm(message)) return;
+    state.admin = await run('adminDeleteRoom', state.adminPin, roomId);
+    renderAdmin();
+  }
+
+  async function addRoom() {
+    const hotel_id = document.getElementById('roomHotelSelect').value;
+    const room_number = document.getElementById('roomNumber').value;
+    const capacity = document.getElementById('roomCapacity').value || 2;
+    if (!hotel_id || !room_number) return alert('กรุณาเลือกโรงแรมและกรอกเลขห้อง');
+    state.admin = await run('adminSaveRoom', state.adminPin, { hotel_id, room_number, room_type: 'Twin', capacity });
+    document.getElementById('roomNumber').value = '';
+    renderAdmin();
+  }
+
+  async function importRooms() {
+    const hotelId = document.getElementById('roomImportHotelSelect').value;
+    const defaultCapacity = Number(document.getElementById('roomImportDefaultCapacity').value || 2);
+    const text = document.getElementById('roomImportText').value;
+    const rows = parseRoomImport(text, defaultCapacity);
+    if (!hotelId) return alert('กรุณาเลือกโรงแรม');
+    if (!rows.length) return alert('กรุณาวางเลขห้องอย่างน้อย 1 ห้อง');
+    state.admin = await run('adminImportRooms', state.adminPin, hotelId, rows);
+    document.getElementById('roomImportResult').textContent = `นำเข้าห้องพักแล้ว ${state.admin.importedRooms || rows.length} ห้อง`;
+    document.getElementById('roomImportText').value = '';
+    renderAdmin();
+  }
+
+  function parseRoomImport(text, defaultCapacity) {
+    return String(text || '')
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(Boolean)
+      .map(line => {
+        const parts = line.split(/,|\t/).map(part => part.trim()).filter(part => part !== '');
+        const roomNumber = parts[0] || '';
+        const capacity = Number(parts[1] || defaultCapacity || 2);
+        const roomType = parts[2] || 'Twin';
+        const note = parts.slice(3).join(' ');
+        return { room_number: roomNumber, capacity: capacity, room_type: roomType, note: note };
+      })
+      .filter(row => row.room_number);
+  }
+
+  function renderBusesAdmin() {
+    document.getElementById('busEditor').innerHTML = state.bootstrap.buses.map(bus => `
+      <div class="card bus-card">
+        <img src="${escapeAttr(resolveAsset(bus.bus_image || ''))}" alt="รถคันที่ ${escapeAttr(bus.bus_number)}">
+        <div class="bus-number">${escapeHtml(bus.bus_number)}</div>
+        <label>คนขับ/ผู้ให้บริการ<input data-bus-field="driver_name" data-bus-id="${escapeAttr(bus.bus_id)}" value="${escapeAttr(bus.driver_name || bus.company_name || '')}"></label>
+        <label>เบอร์โทร<input data-bus-field="driver_phone" data-bus-id="${escapeAttr(bus.bus_id)}" value="${escapeAttr(bus.driver_phone || '')}"></label>
+        <label>จุดขึ้นรถ<input data-bus-field="boarding_points" data-bus-id="${escapeAttr(bus.bus_id)}" value="${escapeAttr(bus.boarding_points || '')}"></label>
+        <label>เวลาออก<input data-bus-field="departure_time" data-bus-id="${escapeAttr(bus.bus_id)}" value="${escapeAttr(bus.departure_time || '')}"></label>
+        <label>ทะเบียนรถ<input data-bus-field="vehicle_registration" data-bus-id="${escapeAttr(bus.bus_id)}" value="${escapeAttr(bus.vehicle_registration || '')}"></label>
+        <label>URL รูปรถ<input data-bus-field="bus_image" data-bus-id="${escapeAttr(bus.bus_id)}" value="${escapeAttr(bus.bus_image || '')}"></label>
+        ${busMiniRow(bus)}
+        <button data-save-bus="${escapeAttr(bus.bus_id)}">บันทึกรถคันนี้</button>
+      </div>`).join('');
+    document.querySelectorAll('[data-save-bus]').forEach(btn => btn.addEventListener('click', () => saveBus(btn.dataset.saveBus)));
+    document.getElementById('busAssignSelect').innerHTML = state.bootstrap.buses.map(b => `<option value="${escapeAttr(b.bus_id)}">รถคันที่ ${escapeHtml(b.bus_number)} (${escapeHtml(b.passenger_count || 0)}/${escapeHtml(b.capacity || 45)})</option>`).join('');
+    renderBusAssignList();
+  }
+
+  async function saveBus(busId) {
+    const bus = Object.assign({}, state.bootstrap.buses.find(b => b.bus_id === busId));
+    document.querySelectorAll(`[data-bus-id="${escapeAttr(busId)}"]`).forEach(input => bus[input.dataset.busField] = input.value);
+    state.bootstrap.buses = await run('adminSaveBus', state.adminPin, bus);
+    await refreshAdmin();
+  }
+
+  function renderBusAssignList() {
+    const q = normalize(document.getElementById('busAssignFilter').value);
+    const rows = state.admin.participants.filter(p => normalize([p.full_name, p.school, p.district, p.bus && p.bus.bus_number].join(' ')).includes(q)).slice(0, 80);
+    document.getElementById('busAssignList').innerHTML = rows.map(p => `<label class="person-row"><span><b>${escapeHtml(p.full_name)}</b><div class="muted">${escapeHtml(p.school || '')} | ${escapeHtml(p.bus ? 'รถคันที่ ' + p.bus.bus_number : 'ยังไม่จัดรถ')}</div></span><input type="checkbox" value="${escapeAttr(p.participant_id)}" data-bus-pick style="width:auto"></label>`).join('');
+  }
+
+  function renderAttendanceAdmin() {
+    const busSelect = document.getElementById('attendanceBusSelect');
+    if (!busSelect || !state.admin) return;
+    const current = busSelect.value;
+    busSelect.innerHTML = state.bootstrap.buses.map(bus => `<option value="${escapeAttr(bus.bus_id)}">รถคันที่ ${escapeHtml(bus.bus_number)} - ${escapeHtml(bus.driver_name || bus.company_name || '')}</option>`).join('');
+    if (current && state.bootstrap.buses.some(bus => bus.bus_id === current)) busSelect.value = current;
+    else if (state.bootstrap.buses[0]) busSelect.value = state.bootstrap.buses[0].bus_id;
+
+    const busId = busSelect.value;
+    const dateKey = document.getElementById('attendanceDate').value;
+    const q = normalize(document.getElementById('attendanceFilter').value);
+    const statusByParticipant = attendanceStatusMap(dateKey);
+    const rows = state.admin.participants
+      .filter(p => String(p.bus_id || '') === String(busId))
+      .filter(p => normalize([p.full_name, p.school, p.district, p.phone].join(' ')).includes(q))
+      .sort((a, b) => String(a.full_name || '').localeCompare(String(b.full_name || ''), 'th'));
+    const present = rows.filter(p => statusByParticipant[p.participant_id] === 'present').length;
+    const absent = rows.filter(p => statusByParticipant[p.participant_id] === 'absent').length;
+    const waiting = Math.max(rows.length - present - absent, 0);
+
+    document.getElementById('attendanceSummary').innerHTML = [
+      `<div class="summary-item">ทั้งหมด<strong>${rows.length}</strong></div>`,
+      `<div class="summary-item">มาแล้ว<strong>${present}</strong></div>`,
+      `<div class="summary-item">ไม่มา<strong>${absent}</strong></div>`,
+      `<div class="summary-item">รอเช็ก<strong>${waiting}</strong></div>`
+    ].join('');
+    document.getElementById('attendanceList').innerHTML = rows.map((p, i) => {
+      const status = statusByParticipant[p.participant_id] || '';
+      return `<div class="attendance-row">
+        <div class="attendance-index">${i + 1}</div>
+        <div>
+          <b>${escapeHtml(p.full_name)}</b>
+          <div class="muted">${escapeHtml(p.school || '')} ${escapeHtml(p.district || '')}</div>
+          <div class="muted">${escapeHtml(p.phone || '')}</div>
+        </div>
+        <span class="pill ${status === 'present' ? 'ok' : status === 'absent' ? 'danger' : 'warn'}">${escapeHtml(attendanceLabel(status))}</span>
+        <div class="toolbar compact attendance-actions">
+          <button type="button" data-attendance-participant="${escapeAttr(p.participant_id)}" data-attendance-status="present">✓ มา</button>
+          <button type="button" class="danger" data-attendance-participant="${escapeAttr(p.participant_id)}" data-attendance-status="absent">✕ ไม่มา</button>
+        </div>
+      </div>`;
+    }).join('') || '<div class="notice">ไม่มีรายชื่อในรถคันนี้</div>';
+    document.querySelectorAll('[data-attendance-participant]').forEach(btn => btn.addEventListener('click', () => markBusAttendance(btn.dataset.attendanceParticipant, btn.dataset.attendanceStatus)));
+  }
+
+  function attendanceStatusMap(dateKey) {
+    const map = {};
+    (state.admin.checkins || [])
+      .filter(row => row.type === 'bus_attendance' && row.note === dateKey)
+      .sort((a, b) => String(a.checked_at || '').localeCompare(String(b.checked_at || '')))
+      .forEach(row => map[row.participant_id] = row.status);
+    return map;
+  }
+
+  function attendanceLabel(status) {
+    if (status === 'present') return '✓ มา';
+    if (status === 'absent') return '✕ ไม่มา';
+    return 'รอเช็ก';
+  }
+
+  async function markBusAttendance(participantId, status) {
+    const dateKey = document.getElementById('attendanceDate').value;
+    state.admin = await run('adminMarkBusAttendance', state.adminPin, participantId, dateKey, status);
+    renderAdmin();
+  }
+
+  async function assignSelectedBus() {
+    const ids = Array.from(document.querySelectorAll('[data-bus-pick]:checked')).map(el => el.value);
+    if (!ids.length) return alert('กรุณาเลือกผู้เข้าร่วม');
+    state.admin = await run('adminAssignBus', state.adminPin, ids, document.getElementById('busAssignSelect').value);
+    renderAdmin();
+  }
+
+  async function adminRoomSearch() {
+    const rows = await run('searchRoom', document.getElementById('adminRoomSearch').value);
+    document.getElementById('adminRoomSearchResults').innerHTML = rows.map(roomResultCard).join('') || '<div class="notice">ไม่พบข้อมูล</div>';
+  }
+
+  async function createReport() {
+    const result = await run('adminCreateReport', state.adminPin, document.getElementById('reportType').value, document.getElementById('reportFormat').value, document.getElementById('reportHotelSelect').value);
+    document.getElementById('reportResult').innerHTML = `<div class="notice">สร้างไฟล์แล้ว: <a href="${escapeAttr(result.url)}" target="_blank">${escapeHtml(result.name)}</a></div>`;
+  }
+
+  async function createHotelReport(hotelId, format) {
+    const result = await run('adminCreateReport', state.adminPin, 'hotelSelected', format || 'xlsx', hotelId);
+    document.getElementById('reportResult').innerHTML = `<div class="notice">สร้างไฟล์รายชื่อโรงแรมแล้ว: <a href="${escapeAttr(result.url)}" target="_blank">${escapeHtml(result.name)}</a></div>`;
+    document.querySelectorAll('.admin-panel').forEach(el => el.classList.toggle('hidden', el.id !== 'admin-reports'));
+    document.querySelectorAll('.admin-nav').forEach(el => el.classList.toggle('active', el.dataset.adminPanel === 'admin-reports'));
+  }
+
+  function renderBusCards(targetId, buses) {
+    const target = document.getElementById(targetId);
+    if (!target) return;
+    target.innerHTML = buses.map(bus => `
+      <div class="card bus-card">
+        <img src="${escapeAttr(resolveAsset(bus.bus_image || ''))}" alt="รถคันที่ ${escapeAttr(bus.bus_number)}">
+        <div class="toolbar" style="justify-content:space-between">
+          <div><div class="muted">รถคันที่</div><div class="bus-number">${escapeHtml(bus.bus_number)}</div></div>
+          <span class="pill">${escapeHtml(bus.passenger_count || 0)} / ${escapeHtml(bus.capacity || 45)} ที่นั่ง</span>
+        </div>
+        <div><b>คนขับ/ผู้ให้บริการ:</b> ${escapeHtml(bus.driver_name || bus.company_name || '-')}</div>
+        <div><b>โทร:</b> ${escapeHtml(bus.driver_phone || '-')}</div>
+        <div><b>จุดขึ้นรถ:</b> ${escapeHtml(bus.boarding_points || '-')}</div>
+        <div><b>เวลาออก:</b> ${escapeHtml(bus.departure_time || '-')}</div>
+        <div class="capacity"><span style="width:${Math.min(100, Number(bus.passenger_count || 0) / Number(bus.capacity || 45) * 100)}%"></span></div>
+        <div class="toolbar"><a href="tel:${escapeAttr(bus.driver_phone || '')}"><button type="button" class="gold">โทรหาคนขับ</button></a></div>
+      </div>`).join('');
+  }
+
+  function renderHotelCards(targetId, hotels) {
+    const target = document.getElementById(targetId);
+    if (!target) return;
+    target.innerHTML = hotels.map(hotel => `
+      <div class="card bus-card">
+        <img src="${escapeAttr(resolveAsset(hotel.hotel_image || ''))}" alt="${escapeAttr(hotel.hotel_name || 'โรงแรม')}">
+        <h3>${escapeHtml(hotel.hotel_name || '-')}</h3>
+        <div class="muted">${escapeHtml(hotel.address || '')}</div>
+        ${hotel.phone ? `<div><b>โทร:</b> ${escapeHtml(hotel.phone)}</div>` : ''}
+        ${hotel.note ? `<div>${escapeHtml(hotel.note)}</div>` : ''}
+      </div>`).join('') || '<div class="notice">ยังไม่มีข้อมูลโรงแรม</div>';
+  }
+
+  function busMiniRow(bus) {
+    const used = Number(bus.passenger_count || 0);
+    const cap = Number(bus.capacity || 45);
+    const cls = used >= cap ? 'danger' : (used >= cap - 3 ? 'warn' : 'ok');
+    return `<div class="person-row"><div><b>รถคันที่ ${escapeHtml(bus.bus_number)}</b><div class="muted">${escapeHtml(bus.driver_name || bus.company_name || '')} ${escapeHtml(bus.driver_phone || '')}</div><div class="capacity"><span style="width:${Math.min(100, used / cap * 100)}%"></span></div></div><span class="pill ${cls}">${used}/${cap}</span></div>`;
+  }
+
+  function metricCard(label, value) {
+    return `<div class="card metric"><span class="muted">${escapeHtml(label)}</span><b>${escapeHtml(value || 0)}</b></div>`;
+  }
+
+  function formToObject(form) {
+    return Object.fromEntries(new FormData(form).entries());
+  }
+
+  function fillForm(form, data) {
+    Object.keys(data || {}).forEach(key => {
+      const input = form.elements[key];
+      if (input) input.value = data[key] || '';
+    });
+  }
+
+  function statusText(status) {
+    const map = {
+      PENDING_CONFIRMATION: 'รออีกฝ่ายยืนยัน',
+      WAITING_RESPONSE: 'รอยืนยันคำขอ',
+      CONFIRMED: 'จับคู่แล้ว',
+      STAFF_QUEUE: 'รอเจ้าหน้าที่จัดคู่',
+      REJECTED: 'คำขอถูกปฏิเสธ'
+    };
+    return map[status] || '-';
+  }
+
+  function normalize(value) {
+    return String(value || '').toLowerCase().replace(/\s+/g, '');
+  }
+
+  function resolveAsset(value) {
+    if (!value) return '';
+    if (window.APP_ASSETS && window.APP_ASSETS[value]) return window.APP_ASSETS[value];
+    if (String(value).indexOf('asset:') === 0) return fallbackAsset(value);
+    return value;
+  }
+
+  function fallbackAsset(value) {
+    const labels = {
+      'asset:bus1': 'รถคันที่ 1',
+      'asset:bus2': 'รถคันที่ 2',
+      'asset:bus3': 'รถคันที่ 3',
+      'asset:bus4': 'รถคันที่ 4',
+      'asset:bus5': 'รถคันที่ 5',
+      'asset:hotelTheOne': 'The One Hotel',
+      'asset:hotelFinn': 'โรงแรมฟินน์'
+    };
+    const label = labels[value] || 'ภาพประกอบ';
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540">
+      <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#7fb8f0"/><stop offset=".55" stop-color="#bdebdc"/><stop offset="1" stop-color="#fff1b8"/></linearGradient></defs>
+      <rect width="960" height="540" rx="28" fill="url(#g)"/>
+      <circle cx="810" cy="90" r="120" fill="rgba(255,255,255,.28)"/>
+      <circle cx="120" cy="430" r="150" fill="rgba(255,255,255,.24)"/>
+      <text x="50%" y="47%" text-anchor="middle" font-family="Arial, sans-serif" font-size="54" font-weight="700" fill="#24445d">${escapeSvg(label)}</text>
+      <text x="50%" y="59%" text-anchor="middle" font-family="Arial, sans-serif" font-size="26" fill="#31506a">ระบบบริหารจัดการผู้เข้าร่วม</text>
+    </svg>`;
+    return 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
+  }
+
+  function escapeSvg(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  }
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  }
+
+  function escapeAttr(value) {
+    return escapeHtml(value);
+  }
+</script>

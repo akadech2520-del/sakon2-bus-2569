@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <?!= include('CSS'); ?>
+</head>
+<body data-page="admin">
+  <div id="adminLogin" class="wrap section">
+    <div class="card" style="max-width:460px;margin:40px auto;">
+      <h2>เข้าสู่ระบบเจ้าหน้าที่</h2>
+      <p class="muted">ค่าเริ่มต้นคือ 2569 เปลี่ยนได้ในชีต Settings</p>
+      <label>PIN เจ้าหน้าที่
+        <input id="adminPin" type="password" inputmode="numeric">
+      </label>
+      <div class="toolbar">
+        <button id="adminLoginBtn">เข้าสู่ระบบ</button>
+        <a href="?"><button type="button" class="secondary">กลับหน้าผู้เข้าร่วม</button></a>
+      </div>
+    </div>
+  </div>
+
+  <div id="adminApp" class="admin-shell hidden">
+    <aside class="side">
+      <h2>Admin Dashboard</h2>
+      <button class="admin-nav active" data-admin-panel="admin-dashboard">ภาพรวม</button>
+      <button class="admin-nav" data-admin-panel="admin-participants">รายชื่อทั้งหมด</button>
+      <button class="admin-nav" data-admin-panel="admin-pairs">จัดคู่ที่พัก</button>
+      <button class="admin-nav" data-admin-panel="admin-rooms">จัดโรงแรม/ห้องพัก</button>
+      <button class="admin-nav" data-admin-panel="admin-buses">จัดรถ</button>
+      <button class="admin-nav" data-admin-panel="admin-attendance">เช็กรายชื่อขึ้นรถ</button>
+      <button class="admin-nav" data-admin-panel="admin-search">ค้นหาห้อง/รถ</button>
+      <button class="admin-nav" data-admin-panel="admin-reports">รายงาน</button>
+    </aside>
+
+    <main class="main">
+      <section id="admin-dashboard" class="admin-panel">
+        <h1>ภาพรวมระบบ</h1>
+        <div class="grid cards section" id="adminMetrics"></div>
+        <div class="split">
+          <div class="card">
+            <h3>แยกตามจุดขึ้นรถ</h3>
+            <div id="adminBoardingSummary" class="result-list"></div>
+          </div>
+          <div class="card">
+            <h3>สถานะรถ 5 คัน</h3>
+            <div id="adminBusStatus" class="result-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="admin-participants" class="admin-panel hidden">
+        <h1>รายชื่อผู้เข้าร่วม</h1>
+        <div class="toolbar">
+          <input id="adminParticipantFilter" placeholder="ค้นหาชื่อ โรงเรียน อำเภอ รถ หรือห้อง">
+          <button id="adminRefreshBtn" class="secondary">รีเฟรช</button>
+        </div>
+        <div class="table-wrap" id="participantsTable"></div>
+      </section>
+
+      <section id="admin-pairs" class="admin-panel hidden">
+        <h1>จัดคู่ที่พัก</h1>
+        <div class="toolbar">
+          <button id="autoPairBtn">จัดคู่ให้อัตโนมัติ</button>
+          <button id="refreshPairsBtn" class="secondary">รีเฟรช</button>
+        </div>
+        <div class="grid cards">
+          <div class="card">
+            <h3>ผู้รอเจ้าหน้าที่จัดคู่</h3>
+            <div id="staffQueueList" class="result-list"></div>
+          </div>
+          <div class="card">
+            <h3>คำขอ/คู่พักทั้งหมด</h3>
+            <div id="pairList" class="result-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="admin-rooms" class="admin-panel hidden">
+        <h1>จัดโรงแรมและห้องพัก</h1>
+        <p class="muted">จัดห้องแยกตามโรงแรม The One Hotel และโรงแรมฟินน์ พร้อมสร้างรายงานรายชื่อส่งให้แต่ละโรงแรมได้จากหัวตารางโรงแรม</p>
+        <div class="toolbar">
+          <input id="hotelName" placeholder="ชื่อโรงแรม">
+          <input id="hotelPhone" placeholder="เบอร์โรงแรม">
+          <button id="addHotelBtn">เพิ่มโรงแรม</button>
+        </div>
+        <div class="toolbar">
+          <select id="roomHotelSelect"></select>
+          <input id="roomNumber" placeholder="เลขห้อง">
+          <input id="roomCapacity" type="number" min="1" value="2" placeholder="จำนวนที่พักได้">
+          <button id="addRoomBtn">เพิ่มห้อง</button>
+        </div>
+        <div class="card room-import-card">
+          <h3>นำเข้าห้องพักของโรงแรมก่อนจัดผู้เข้าพัก</h3>
+          <p class="muted">เลือกโรงแรม แล้ววางเลขห้องทีละบรรทัด หรือใช้รูปแบบ CSV เช่น 305,2,Twin</p>
+          <div class="toolbar">
+            <select id="roomImportHotelSelect"></select>
+            <input id="roomImportDefaultCapacity" type="number" min="1" value="2" placeholder="ความจุเริ่มต้น">
+            <button id="importRoomsBtn" type="button">นำเข้าห้องพัก</button>
+          </div>
+          <textarea id="roomImportText" rows="5" placeholder="305&#10;306,2,Twin&#10;401,2,Twin&#10;402,3,Family"></textarea>
+          <div id="roomImportResult" class="muted"></div>
+        </div>
+        <div class="split">
+          <div class="card">
+            <h3>ผู้รอจัดห้อง</h3>
+            <div id="unroomedList" class="result-list"></div>
+          </div>
+          <div class="card">
+            <h3>ผังห้องพัก</h3>
+            <div id="roomPlan" class="result-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="admin-buses" class="admin-panel hidden">
+        <h1>จัดรถและตรวจจำนวนที่นั่ง</h1>
+        <div id="busEditor" class="grid bus-grid"></div>
+        <div class="card section">
+          <h3>กำหนดผู้เข้าร่วมขึ้นรถ</h3>
+          <div class="toolbar">
+            <input id="busAssignFilter" placeholder="ค้นหาผู้เข้าร่วมที่ยังไม่ได้จัดรถหรือจัดรถแล้ว">
+            <select id="busAssignSelect"></select>
+            <button id="assignBusBtn">กำหนดรถให้รายการที่เลือก</button>
+          </div>
+          <div id="busAssignList" class="result-list"></div>
+        </div>
+      </section>
+
+      <section id="admin-attendance" class="admin-panel hidden">
+        <h1>เช็กรายชื่อขึ้นรถรายคัน</h1>
+        <p class="muted">ใช้ในเช้าวันที่ 20 และ 21 สิงหาคม 2569 เลือกวันที่และรถคันที่ต้องการ แล้วทำเครื่องหมายถูกสำหรับผู้ที่มา หรือกากบาทสำหรับผู้ที่ไม่มา</p>
+        <div class="toolbar">
+          <select id="attendanceDate">
+            <option value="2026-08-20">เช้าวันที่ 20 สิงหาคม 2569</option>
+            <option value="2026-08-21">เช้าวันที่ 21 สิงหาคม 2569</option>
+          </select>
+          <select id="attendanceBusSelect"></select>
+          <input id="attendanceFilter" placeholder="ค้นหาชื่อ โรงเรียน หรือเบอร์โทร">
+        </div>
+        <div id="attendanceSummary" class="summary"></div>
+        <div id="attendanceList" class="result-list"></div>
+      </section>
+
+      <section id="admin-search" class="admin-panel hidden">
+        <h1>ค้นหาห้องพักและรถ</h1>
+        <div class="toolbar">
+          <input id="adminRoomSearch" placeholder="ค้นหาชื่อ โรงเรียน อำเภอ โรงแรม ห้อง จุดขึ้นรถ หรือรถคันที่">
+          <button id="adminRoomSearchBtn">ค้นหา</button>
+        </div>
+        <div id="adminRoomSearchResults" class="result-list"></div>
+      </section>
+
+      <section id="admin-reports" class="admin-panel hidden">
+        <h1>รายงาน</h1>
+        <div class="grid cards">
+          <div class="card">
+            <h3>เลือกรายงาน</h3>
+            <label>ประเภท
+              <select id="reportType">
+                <option value="participants">รายชื่อผู้เข้ารับการอบรม</option>
+                <option value="rooms">รายชื่อห้องพัก</option>
+                <option value="hotels">รายชื่อแยกตามโรงแรม</option>
+                <option value="hotelSelected">รายชื่อส่งโรงแรมที่เลือก</option>
+                <option value="buses">รายชื่อขึ้นรถ</option>
+              </select>
+            </label>
+            <label>โรงแรม
+              <select id="reportHotelSelect"></select>
+            </label>
+            <label>ไฟล์
+              <select id="reportFormat">
+                <option value="xlsx">Excel (.xlsx)</option>
+                <option value="pdf">PDF</option>
+                <option value="csv">CSV</option>
+              </select>
+            </label>
+            <div class="toolbar">
+              <button id="createReportBtn">สร้างรายงาน</button>
+            </div>
+            <div id="reportResult"></div>
+          </div>
+          <div class="card">
+            <h3>โครงสร้างนำเข้ารายชื่อ</h3>
+            <p class="muted">นำเข้าผ่านชีต Participants โดยใช้หัวคอลัมน์ที่ระบบสร้างให้ หรือวางข้อมูลใน Google Sheets แล้วกด setupWorkbook อีกครั้งเพื่อเติมชีตที่ขาด</p>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <?!= include('AppAssets'); ?>
+  <?!= include('JavaScript'); ?>
+</body>
+</html>

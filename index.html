@@ -1,0 +1,6 @@
+<!doctype html>
+<html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ระบบบริหารจัดการผู้เข้าร่วม</title></head>
+<body><div style="font-family:Arial,sans-serif;padding:32px;text-align:center">กำลังโหลดระบบ...</div>
+<script src="config.js"></script><script>
+(async()=>{try{const page=new URLSearchParams(location.search).get('page')==='admin'?'Admin.html':'Public.html';const [template,css,javascript]=await Promise.all([fetch(page).then(r=>r.ok?r.text():Promise.reject(new Error('ไม่พบ '+page))),fetch('CSS.html').then(r=>r.text()),fetch('JavaScript.html').then(r=>r.text())]);const body=template.replace(/<\?!=\s*include\('CSS'\);\s*\?>/g,css).replace(/<\?!=\s*include\('HeaderImage'\);\s*\?>/g,'').replace(/<\?!=\s*include\('AppAssets'\);\s*\?>/g,'<script>window.APP_ASSETS=window.APP_ASSETS||{};<\/script>').replace(/<\?!=\s*include\('JavaScript'\);\s*\?>/g,javascript);document.open();document.write(body);document.close()}catch(error){document.body.innerHTML='<div style="font-family:Arial,sans-serif;max-width:680px;margin:40px auto;padding:20px"><h1>โหลดเว็บไม่สำเร็จ</h1><p>'+String(error.message||error)+'</p></div>'}})();
+</script></body></html>

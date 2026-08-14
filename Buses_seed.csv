@@ -1,0 +1,6 @@
+bus_id,bus_number,driver_name,company_name,driver_phone,boarding_points,capacity,passenger_count,departure_time,vehicle_registration,bus_image,driver_image,note,status,updated_at
+BUS001,1,,สมชายเทลเวล,081-071-8827,เส้นอำเภอพรรณานิคม,45,0,05.00 น.,,asset:bus1,,,พร้อมใช้งาน,
+BUS002,2,ทีปกร,,097-310-5999,ปตท.อำเภอพังโคน,45,0,05.20 น.,,asset:bus2,,,พร้อมใช้งาน,
+BUS003,3,อุทัย,,085-747-0101,สพป.สกลนคร เขต 2,45,0,05.30 น.,,asset:bus3,,,พร้อมใช้งาน,
+BUS004,4,สราวุฒิ,,061-079-4979,เส้นอำเภอพรรณานิคม,45,0,05.00 น.,,asset:bus4,,,พร้อมใช้งาน,
+BUS005,5,กิตติศักดิ์,,089-941-7446,สพป.สกลนคร เขต 2,45,0,05.30 น.,,asset:bus5,,,พร้อมใช้งาน,
